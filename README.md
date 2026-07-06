@@ -52,4 +52,4 @@ Python · pandas · NumPy · SciPy · Power BI (dashboard)
 Football is unpredictable. This model estimates probabilities from historical form — not certainties. Injuries, current form, and tournament pressure all matter. Built for learning and fun. ⚽
 
 ---
-*Built by [your-name]. Feedback welcome!*
+*Built by Eslam Eid Omar Hamza. Feedback welcome!*
