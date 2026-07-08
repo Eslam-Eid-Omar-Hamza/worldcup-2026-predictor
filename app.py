@@ -27,19 +27,26 @@ AR_NAMES = {
 }
 EN_TO_AR = {v:k for k,v in AR_NAMES.items()}
 
-# ==================== FLAGS ====================
-SPECIAL_FLAGS = {
-    "England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Wales":"🏴󠁧󠁢󠁷󠁬󠁳󠁿",
-    "Northern Ireland":"🇬🇧","Kosovo":"🇽🇰",
+# ==================== FLAGS (real images, work on all devices) ====================
+SPECIAL_ISO = {
+    "England":"gb-eng","Scotland":"gb-sct","Wales":"gb-wls",
+    "Northern Ireland":"gb-nir","Kosovo":"xk",
 }
 @st.cache_data
-def get_flag(name):
-    if name in SPECIAL_FLAGS: return SPECIAL_FLAGS[name]
+def flag_url(name):
+    if name in SPECIAL_ISO:
+        return f"https://flagcdn.com/w80/{SPECIAL_ISO[name]}.png"
     try:
         iso2 = coco.convert(names=name, to="ISO2")
         if iso2 and iso2 != "not found" and len(iso2) == 2:
-            return chr(0x1F1E6+ord(iso2[0])-ord("A"))+chr(0x1F1E6+ord(iso2[1])-ord("A"))
+            return f"https://flagcdn.com/w80/{iso2.lower()}.png"
     except Exception: pass
+    return None
+
+def flag_img(name, h=22):
+    u = flag_url(name)
+    if u:
+        return f"<img src='{u}' height='{h}' style='vertical-align:middle;border-radius:3px;margin:0 4px;'>"
     return "🏳️"
 
 # ==================== TRANSLATIONS ====================
@@ -161,7 +168,7 @@ tr=T[st.session_state.lang]; lang=st.session_state.lang
 if lang=="ar":
     st.markdown('<style>.main *{direction:rtl;text-align:right;}</style>',unsafe_allow_html=True)
 
-st.markdown(f"<div class='hero'><div class='ball'>⚽</div><h1 style='margin:0;'>{tr['title']}</h1>"
+st.markdown(f"<div class='hero'><div class='ball'>🏆⚽</div><h1 style='margin:0;'>{tr['title']}</h1>"
             f"<p style='opacity:.7;margin-top:2px;'>{tr['subtitle']}</p></div>",unsafe_allow_html=True)
 
 with st.spinner(tr["loading"]):
@@ -181,12 +188,13 @@ with col2:
 knockout=st.checkbox(tr["knockout"],value=True)
 
 # live matchup preview with flags OUTSIDE (next to result area)
-fh,fa=get_flag(home),get_flag(away)
+fh,fa=flag_img(home,54),flag_img(away,54)
+fh_s,fa_s=flag_img(home,22),flag_img(away,22)
 st.markdown(
     f"<div class='matchup'>"
-    f"<div class='team-card'><div class='team-flag'>{fh}</div><div class='team-name'>{display_name(home,lang)}</div></div>"
+    f"<div class='team-card'><div>{fh}</div><div class='team-name'>{display_name(home,lang)}</div></div>"
     f"<div class='vs'>VS</div>"
-    f"<div class='team-card'><div class='team-flag'>{fa}</div><div class='team-name'>{display_name(away,lang)}</div></div>"
+    f"<div class='team-card'><div>{fa}</div><div class='team-name'>{display_name(away,lang)}</div></div>"
     f"</div>", unsafe_allow_html=True)
 
 if st.button(tr["predict"],type="primary",use_container_width=True):
@@ -197,10 +205,10 @@ if st.button(tr["predict"],type="primary",use_container_width=True):
         lh,la,ph,pd_,pa,g_et,g_pen,fin_h,fin_a=predict(S,avg,home,away)
         diff=abs(ph-pa)
         if diff<0.08:
-            verdict=tr["verdict_close"].format(a=f"{fh} {hn}",b=f"{fa} {an}")
+            verdict=tr["verdict_close"].format(a=f"{fh_s} {hn}",b=f"{fa_s} {an}")
         else:
-            if ph>pa: verdict=tr["verdict_fav"].format(a=f"{fh} {hn}",b=f"{fa} {an}")
-            else: verdict=tr["verdict_fav"].format(a=f"{fa} {an}",b=f"{fh} {hn}")
+            if ph>pa: verdict=tr["verdict_fav"].format(a=f"{fh_s} {hn}",b=f"{fa_s} {an}")
+            else: verdict=tr["verdict_fav"].format(a=f"{fa_s} {an}",b=f"{fh_s} {hn}")
         st.markdown(f"<div class='verdict'>{verdict}</div>",unsafe_allow_html=True)
 
         st.markdown(f"#### {tr['in90']}")
@@ -210,12 +218,12 @@ if st.button(tr["predict"],type="primary",use_container_width=True):
             f"<div class='bar-seg' style='width:{pd_*100:.0f}%;background:#636e72;'>{pd_*100:.0f}%</div>"
             f"<div class='bar-seg' style='width:{pa*100:.0f}%;background:#0984e3;'>{pa*100:.0f}%</div></div>"
             f"<div style='display:flex;justify-content:space-between;font-size:.9rem;opacity:.85;'>"
-            f"<span>{fh} {hn} {tr['win']}</span><span>{tr['draw']}</span><span>{an} {tr['win']} {fa}</span></div>",
+            f"<span>{fh_s} {hn} {tr['win']}</span><span>{tr['draw']}</span><span>{an} {tr['win']} {fa_s}</span></div>",
             unsafe_allow_html=True)
 
         g1,g2=st.columns(2)
-        g1.metric(f"{fh} {hn} · {tr['exp_goals']}",f"{lh:.2f}")
-        g2.metric(f"{fa} {an} · {tr['exp_goals']}",f"{la:.2f}")
+        g1.metric(f"{hn} · {tr['exp_goals']}",f"{lh:.2f}")
+        g2.metric(f"{an} · {tr['exp_goals']}",f"{la:.2f}")
 
         if knockout:
             st.markdown(f"#### {tr['knockout_head']}")
@@ -226,15 +234,15 @@ if st.button(tr["predict"],type="primary",use_container_width=True):
             if g_pen>0.15: st.info(tr["pens_note"])
             st.markdown(f"#### {tr['qualify']}")
             q1,q2=st.columns(2)
-            q1.metric(f"{fh} {hn}",f"{fin_h*100:.0f}%")
-            q2.metric(f"{fa} {an}",f"{fin_a*100:.0f}%")
+            q1.metric(f"{hn}",f"{fin_h*100:.0f}%")
+            q2.metric(f"{an}",f"{fin_a*100:.0f}%")
 
         st.markdown(f"#### {tr['strengths']}")
-        for team,flg in [(home,fh),(away,fa)]:
+        for team in [home,away]:
             atk=S.loc[team,"attack"]; dfn=S.loc[team,"defense"]; el=int(S.loc[team,"elo"])
             st.markdown(
                 f"<div style='background:rgba(255,255,255,.05);padding:10px 14px;border-radius:10px;margin:5px 0;'>"
-                f"<b>{flg} {display_name(team,lang)}</b> &nbsp;·&nbsp; {tr['attack']}: <b>{atk:.2f}</b> ({slabel(tr,atk)}) "
+                f"<b>{flag_img(team,20)} {display_name(team,lang)}</b> &nbsp;·&nbsp; {tr['attack']}: <b>{atk:.2f}</b> ({slabel(tr,atk)}) "
                 f"&nbsp;·&nbsp; {tr['defense']}: <b>{dfn:.2f}</b> ({slabel(tr,dfn,True)}) "
                 f"&nbsp;·&nbsp; {tr['elo']}: <b>{el}</b></div>",unsafe_allow_html=True)
 
