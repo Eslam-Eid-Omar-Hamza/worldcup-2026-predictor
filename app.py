@@ -183,7 +183,7 @@ with col1:
         format_func=lambda t: display_name(t,lang))
 with col2:
     away=st.selectbox(tr["away"],teams,
-        index=teams.index("Argentina") if "Argentina" in teams else 1,
+        index=teams.index("Saudi Arabia") if "Saudi Arabia" in teams else 1,
         format_func=lambda t: display_name(t,lang))
 knockout=st.checkbox(tr["knockout"],value=True)
 
