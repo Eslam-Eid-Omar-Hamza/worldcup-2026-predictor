@@ -4,6 +4,14 @@ import numpy as np
 from scipy.stats import poisson
 import country_converter as coco
 import urllib.request, json
+import io
+from PIL import Image, ImageDraw, ImageFont
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+    _AR_OK=True
+except Exception:
+    _AR_OK=False
 import logging
 logging.getLogger("country_converter").setLevel(logging.CRITICAL)
 
@@ -212,7 +220,7 @@ T={
   "decided90":"Decided in 90'","extratime":"Extra time","penalties":"Penalties",
   "knockout_head":"⏱️ If it's a knockout","qualify":"🏆 Who goes through","strengths":"💪 Team strengths",
   "attack":"Attack","defense":"Defense","elo":"Rating","strong":"strong","avg":"average","weak":"weak",
-  "form":"📈 Recent form (last 5)","likely":"🎯 Most likely score","share":"📋 Copy result","copied":"Copied!",
+  "form":"📈 Recent form (last 5)","likely":"🎯 Most likely score","share":"📸 Share this result","download":"⬇️ Download image",
   "updated":"Data updated to","disclaimer":"These are odds from past form, not certainties. Just for fun ⚽",
   "verdict_fav":"**{a}** are the favourites, but **{b}** can cause an upset.",
   "verdict_close":"It's a coin-flip — **{a}** and **{b}** are very evenly matched!",
@@ -226,13 +234,51 @@ T={
   "decided90":"يتحسم في 90'","extratime":"وقت إضافي","penalties":"ضربات جزا",
   "knockout_head":"⏱️ لو خروج مغلوب","qualify":"🏆 مين يتأهّل","strengths":"💪 قوة الفريقين",
   "attack":"الهجوم","defense":"الدفاع","elo":"التصنيف","strong":"قوي","avg":"متوسط","weak":"ضعيف",
-  "form":"📈 آخر 5 نتايج","likely":"🎯 النتيجة الأرجح","share":"📋 انسخ النتيجة","copied":"اتنسخت!",
+  "form":"📈 آخر 5 نتايج","likely":"🎯 النتيجة الأرجح","share":"📸 شارك النتيجة","download":"⬇️ حمّل الصورة",
   "updated":"الداتا محدّثة حتى","disclaimer":"دي فرص محسوبة من الأداء السابق مش نتايج مؤكدة. للتسلية ⚽",
   "verdict_fav":"**{a}** هو المرشّح، بس **{b}** ممكن يعمل مفاجأة.",
   "verdict_close":"الماتش ونص — **{a}** و **{b}** متقاربين جداً!",
   "pens_note":"احتمال كبير لضربات الجزا 🥅 — وفيها أي حاجة ممكن تحصل!",
   "L_national":"🌍 المنتخبات","L_laliga":"🇪🇸 الدوري الإسباني","L_epl":"🏴 الدوري الإنجليزي"},
 }
+
+
+# ==================== SHAREABLE RESULT CARD ====================
+def build_card(home, away, ph, pd_, pa, si, sj, pen_pct, lang="en"):
+    W,H=800,500
+    img=Image.new("RGB",(W,H),(13,27,42)); d=ImageDraw.Draw(img)
+    try: fontpath="Cairo.ttf"; ImageFont.truetype(fontpath,20)
+    except Exception: fontpath=None
+    def F(sz): return ImageFont.truetype(fontpath,sz) if fontpath else ImageFont.load_default()
+    ar=(lang=="ar" and _AR_OK)
+    def fix(t): return get_display(arabic_reshaper.reshape(t)) if ar else t
+    def C(x,y,t,sz,col): d.text((x,y),fix(t),font=F(sz),fill=col,anchor="ma")
+    def L(x,y,t,sz,col): d.text((x,y),fix(t),font=F(sz),fill=col,anchor="la")
+    def R(x,y,t,sz,col): d.text((x,y),fix(t),font=F(sz),fill=col,anchor="ra")
+    def Craw(x,y,t,sz,col): d.text((x,y),t,font=F(sz),fill=col,anchor="ma")
+    d.rectangle([0,0,W,6],fill=(0,184,148))
+    C(W//2,28,"⚽ Match Predictor",26,(232,238,245))
+    C(200,88,home[:18],26,(232,238,245)); Craw(W//2,92,"VS",28,(120,120,130)); C(600,88,away[:18],26,(232,238,245))
+    Craw(W//2,140,f"{si}  -  {sj}",64,(255,255,255))
+    C(W//2,225,"النتيجة الأرجح" if lang=="ar" else "Most likely score",18,(150,155,165))
+    bx,by,bw,bh=80,285,640,46
+    sh=int(bw*ph); sd=int(bw*pd_); sa=bw-sh-sd
+    d.rectangle([bx,by,bx+sh,by+bh],fill=(214,48,49))
+    d.rectangle([bx+sh,by,bx+sh+sd,by+bh],fill=(99,110,114))
+    d.rectangle([bx+sh+sd,by,bx+bw,by+bh],fill=(9,132,227))
+    if sh>44: d.text((bx+sh//2,by+bh//2),f"{ph*100:.0f}%",font=F(20),fill=(255,255,255),anchor="mm")
+    if sd>44: d.text((bx+sh+sd//2,by+bh//2),f"{pd_*100:.0f}%",font=F(20),fill=(255,255,255),anchor="mm")
+    if sa>44: d.text((bx+sh+sd+sa//2,by+bh//2),f"{pa*100:.0f}%",font=F(20),fill=(255,255,255),anchor="mm")
+    win="يكسب" if lang=="ar" else "win"; draw="تعادل" if lang=="ar" else "Draw"
+    L(bx,by+bh+14,f"{home[:12]} {win}",16,(180,185,195))
+    C(W//2,by+bh+14,draw,16,(180,185,195))
+    R(bx+bw,by+bh+14,f"{away[:12]} {win}",16,(180,185,195))
+    if pen_pct>0:
+        pen=(f"احتمال ضربات جزا {pen_pct*100:.0f}%" if lang=="ar" else f"{pen_pct*100:.0f}% chance of penalties")
+        C(W//2,406,"🥅 "+pen,20,(0,206,201))
+    C(W//2,458,"نموذج Poisson + Elo · للتسلية" if lang=="ar" else "Poisson + Elo model  ·  for fun",14,(120,125,135))
+    buf=io.BytesIO(); img.save(buf,format="PNG"); buf.seek(0)
+    return buf
 
 # ==================== STYLING ====================
 st.markdown("""<style>
@@ -389,10 +435,15 @@ if st.button(tr["predict"],type="primary",use_container_width=True):
             st.markdown(f"<div style='margin:6px 0;'><b>{team_flag(team,20)} {disp(team,lang)}</b> &nbsp; {form_html(team)}</div>",
                         unsafe_allow_html=True)
 
-        # share / copy result
-        share_text=f"{hn} {si}-{sj} {an} | {hn} {ph*100:.0f}% - {tr['draw']} {pd_*100:.0f}% - {an} {pa*100:.0f}%"
+        # shareable image card
         st.markdown(f"#### {tr['share']}")
-        st.code(share_text, language=None)
+        try:
+            card=build_card(hn,an,ph,pd_,pa,si,sj,(g_pen if knockout else 0),lang)
+            st.image(card, use_container_width=True)
+            st.download_button(tr['download'], data=card.getvalue(),
+                file_name=f"{home}_vs_{away}.png", mime="image/png", use_container_width=True)
+        except Exception as e:
+            st.caption("Image card unavailable")
 
         st.divider()
         st.caption(f"📅 {tr['updated']} {latest.date()}  ·  {tr['disclaimer']}")
