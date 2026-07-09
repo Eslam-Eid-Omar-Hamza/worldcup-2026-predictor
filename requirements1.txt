@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+scipy
+country-converter
+pillow
+arabic-reshaper
+python-bidi
