@@ -296,6 +296,11 @@ def build_card(home, away, ph, pd_, pa, si, sj, pen_pct, lang="en"):
 # ==================== STYLING ====================
 st.markdown("""<style>
 #MainMenu{visibility:hidden;} footer{visibility:hidden;}
+/* hide the top-right toolbar (GitHub/Fork/Deploy icons) */
+[data-testid="stToolbar"]{display:none !important;}
+[data-testid="stDecoration"]{display:none !important;}
+header[data-testid="stHeader"]{display:none !important;}
+.stAppDeployButton{display:none !important;}
 .stApp{background:linear-gradient(160deg,#0d1b2a 0%,#1b263b 100%);}
 h1,h2,h3,h4,p,label,span,div{color:#e8eef5 !important;}
 .block-container{padding-top:1.2rem;max-width:760px;}
@@ -315,25 +320,33 @@ h1,h2,h3,h4,p,label,span,div{color:#e8eef5 !important;}
 .form-badge{display:inline-block;width:26px;height:26px;line-height:26px;text-align:center;border-radius:6px;font-weight:800;font-size:.8rem;margin:0 2px;color:#fff;}
 .fw{background:#00b894;} .fd{background:#636e72;} .fl{background:#d63031;}
 
-/* --- Dropdown menu fix: dark background + visible text --- */
+/* ===== Dropdown fix: works on mobile + desktop ===== */
+/* the closed select box */
 div[data-baseweb="select"] > div{
   background-color:#1b263b !important;
-  border-color:rgba(255,255,255,.2) !important;
+  border-color:rgba(255,255,255,.25) !important;
 }
-div[data-baseweb="select"] *{ color:#e8eef5 !important; }
-/* the popover list that opens */
-ul[role="listbox"], div[data-baseweb="popover"] div[data-baseweb="menu"]{
+div[data-baseweb="select"] div, div[data-baseweb="select"] span{ color:#e8eef5 !important; }
+/* the popover container that opens (covers every Streamlit variant) */
+div[data-baseweb="popover"], div[data-baseweb="popover"] *{
   background-color:#1b263b !important;
 }
-ul[role="listbox"] li, li[role="option"]{
+ul[role="listbox"], div[data-baseweb="menu"], div[data-baseweb="menu"] ul{
+  background-color:#1b263b !important;
+}
+/* every option row */
+li[role="option"], ul[role="listbox"] li, div[data-baseweb="menu"] li{
   background-color:#1b263b !important;
   color:#e8eef5 !important;
+  opacity:1 !important;
 }
-ul[role="listbox"] li:hover, li[role="option"]:hover{
+/* highlighted / hovered option */
+li[role="option"]:hover, li[aria-selected="true"], div[data-baseweb="menu"] li:hover{
   background-color:#2a3b52 !important;
+  color:#ffffff !important;
 }
 /* radio buttons text */
-div[role="radiogroup"] label{ color:#e8eef5 !important; }
+div[role="radiogroup"] label, div[role="radiogroup"] label *{ color:#e8eef5 !important; }
 </style>""", unsafe_allow_html=True)
 
 # ==================== UI ====================
