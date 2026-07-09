@@ -3,103 +3,63 @@ import pandas as pd
 import numpy as np
 from scipy.stats import poisson
 import country_converter as coco
+import urllib.request, json
 import logging
 logging.getLogger("country_converter").setLevel(logging.CRITICAL)
 
-# ==================== CONFIG ====================
 st.set_page_config(page_title="Match Predictor", page_icon="⚽", layout="centered")
-DATA_URL = "https://raw.githubusercontent.com/martj42/international_results/master/results.csv"
-CUTOFF = "2018-01-01"
 
-# ==================== ARABIC NAME MAP ====================
-# Maps Arabic team names -> English (as they appear in the data)
-AR_NAMES = {
-    "مصر":"Egypt","الأرجنتين":"Argentina","البرازيل":"Brazil","السعودية":"Saudi Arabia",
-    "المغرب":"Morocco","الجزائر":"Algeria","تونس":"Tunisia","قطر":"Qatar",
-    "الإمارات":"United Arab Emirates","العراق":"Iraq","الأردن":"Jordan","الكويت":"Kuwait",
-    "عمان":"Oman","البحرين":"Bahrain","لبنان":"Lebanon","سوريا":"Syria","فلسطين":"Palestine",
-    "ليبيا":"Libya","السودان":"Sudan","اليمن":"Yemen","فرنسا":"France","ألمانيا":"Germany",
-    "إسبانيا":"Spain","البرتغال":"Portugal","إنجلترا":"England","إيطاليا":"Italy",
-    "هولندا":"Netherlands","بلجيكا":"Belgium","كرواتيا":"Croatia","السنغال":"Senegal",
-    "نيجيريا":"Nigeria","غانا":"Ghana","الكاميرون":"Cameroon","اليابان":"Japan",
-    "كوريا الجنوبية":"South Korea","أستراليا":"Australia","أمريكا":"United States",
-    "المكسيك":"Mexico","الأوروجواي":"Uruguay","كولومبيا":"Colombia","إيران":"Iran",
-}
-EN_TO_AR = {v:k for k,v in AR_NAMES.items()}
+# ==================== DATA SOURCES ====================
+NAT_URL = "https://raw.githubusercontent.com/martj42/international_results/master/results.csv"
+SEASONS = ["2021-22","2022-23","2023-24","2024-25","2025-26"]
 
-# ==================== FLAGS (real images, work on all devices) ====================
-SPECIAL_ISO = {
-    "England":"gb-eng","Scotland":"gb-sct","Wales":"gb-wls",
-    "Northern Ireland":"gb-nir","Kosovo":"xk",
-}
-@st.cache_data
-def flag_url(name):
-    if name in SPECIAL_ISO:
-        return f"https://flagcdn.com/w80/{SPECIAL_ISO[name]}.png"
-    try:
-        iso2 = coco.convert(names=name, to="ISO2")
-        if iso2 and iso2 != "not found" and len(iso2) == 2:
-            return f"https://flagcdn.com/w80/{iso2.lower()}.png"
-    except Exception: pass
-    return None
+@st.cache_data(ttl=3600)
+def load_national():
+    df = pd.read_csv(NAT_URL, parse_dates=["date"])
+    df = df.dropna(subset=["home_score","away_score"]).copy()
+    df["home_score"]=df["home_score"].astype(int); df["away_score"]=df["away_score"].astype(int)
+    df = df[df["date"] >= "2018-01-01"].copy()
+    return df[["date","home_team","away_team","home_score","away_score","neutral"]]
 
-def flag_img(name, h=22):
-    u = flag_url(name)
-    if u:
-        return f"<img src='{u}' height='{h}' style='vertical-align:middle;border-radius:3px;margin:0 4px;'>"
-    return "🏳️"
+@st.cache_data(ttl=3600)
+def load_openfootball(code):
+    base = "https://raw.githubusercontent.com/openfootball/football.json/master/{s}/"+code+".json"
+    rows=[]
+    for s in SEASONS:
+        try:
+            req=urllib.request.Request(base.format(s=s),headers={'User-Agent':'Mozilla/5.0'})
+            data=json.load(urllib.request.urlopen(req,timeout=20))
+            for m in data['matches']:
+                sc=m.get('score')
+                if isinstance(sc,dict) and sc.get('ft') and len(sc['ft'])==2:
+                    rows.append({'date':m['date'],'home_team':m['team1'],'away_team':m['team2'],
+                                 'home_score':sc['ft'][0],'away_score':sc['ft'][1],'neutral':False})
+        except Exception: pass
+    df=pd.DataFrame(rows); df['date']=pd.to_datetime(df['date'])
+    df['home_score']=df['home_score'].astype(int); df['away_score']=df['away_score'].astype(int)
+    return df
 
-# ==================== TRANSLATIONS ====================
-T = {
- "en":{"title":"Match Predictor","subtitle":"Live international football predictions",
-  "lang_label":"🌐 العربية","home":"Team A","away":"Team B",
-  "knockout":"Knockout match (extra time & penalties)","predict":"⚽ Predict Match",
-  "loading":"Pulling latest data & training model...","pick":"⚠️ Please pick two different teams.",
-  "win":"win","draw":"Draw","exp_goals":"Expected goals (avg)",
-  "in90":"📊 Win probability (90 minutes)","decided90":"Decided in 90'",
-  "extratime":"Extra time","penalties":"Penalties","knockout_head":"⏱️ If it's a knockout",
-  "qualify":"🏆 Who goes through","strengths":"💪 Team strengths",
-  "attack":"Attack","defense":"Defense","elo":"Rating",
-  "strong":"strong","avg":"average","weak":"weak","updated":"Data updated to",
-  "disclaimer":"Football is unpredictable — these are probabilities from past form, not certainties. Made for fun ⚽",
-  "verdict_fav":"**{a}** are the favourites, but **{b}** can cause an upset.",
-  "verdict_close":"This is a coin-flip — **{a}** and **{b}** are very evenly matched!",
-  "pens_note":"High chance of penalties 🥅 — anything can happen in a shootout!"},
- "ar":{"title":"متنبّئ الماتشات","subtitle":"توقّعات حيّة لكرة القدم الدولية",
-  "lang_label":"🌐 English","home":"الفريق الأول","away":"الفريق التاني",
-  "knockout":"ماتش خروج مغلوب (وقت إضافي وجزا)","predict":"⚽ احسب التوقّع",
-  "loading":"بنسحب آخر داتا وبندرّب الموديل...","pick":"⚠️ اختار فريقين مختلفين.",
-  "win":"يكسب","draw":"تعادل","exp_goals":"متوسط الأهداف المتوقّع",
-  "in90":"📊 احتمالات الفوز (في الـ 90 دقيقة)","decided90":"يتحسم في 90'",
-  "extratime":"وقت إضافي","penalties":"ضربات جزا","knockout_head":"⏱️ لو خروج مغلوب",
-  "qualify":"🏆 مين يتأهّل","strengths":"💪 قوة الفريقين",
-  "attack":"الهجوم","defense":"الدفاع","elo":"التصنيف",
-  "strong":"قوي","avg":"متوسط","weak":"ضعيف","updated":"الداتا محدّثة حتى",
-  "disclaimer":"الكورة مبتتحسبش — دي احتمالات من الأداء السابق مش نتايج مؤكدة. اتعملت للتسلية ⚽",
-  "verdict_fav":"**{a}** هو المرشّح، بس **{b}** ممكن يعمل مفاجأة.",
-  "verdict_close":"الماتش ونص — **{a}** و **{b}** متقاربين جداً!",
-  "pens_note":"احتمال كبير لضربات الجزا 🥅 — وفيها أي حاجة ممكن تحصل!"},
-}
+def get_data(league):
+    if league=="national": return load_national()
+    if league=="laliga": return load_openfootball("es.1")
+    if league=="epl": return load_openfootball("en.1")
 
 # ==================== MODEL ====================
 @st.cache_data(ttl=3600)
-def load_and_train():
-    df = pd.read_csv(DATA_URL, parse_dates=["date"])
-    df = df.dropna(subset=["home_score","away_score"]).copy()
-    df["home_score"]=df["home_score"].astype(int); df["away_score"]=df["away_score"].astype(int)
-    recent = df[df["date"]>=CUTOFF].copy()
-    latest_date = df["date"].max()
-    overall_avg = (recent["home_score"].mean()+recent["away_score"].mean())/2
-    teams = pd.unique(recent[["home_team","away_team"]].values.ravel())
+def train(league):
+    df = get_data(league)
+    latest = df["date"].max()
+    avg = (df["home_score"].mean()+df["away_score"].mean())/2
+    teams = pd.unique(df[["home_team","away_team"]].values.ravel())
     rows=[]
     for t in teams:
-        h=recent[recent["home_team"]==t]; a=recent[recent["away_team"]==t]; g=len(h)+len(a)
+        h=df[df["home_team"]==t]; a=df[df["away_team"]==t]; g=len(h)+len(a)
         if g<5: continue
         gf=h["home_score"].sum()+a["away_score"].sum(); ga=h["away_score"].sum()+a["home_score"].sum()
-        rows.append({"team":t,"attack":(gf/g)/overall_avg,"defense":(ga/g)/overall_avg})
+        rows.append({"team":t,"attack":(gf/g)/avg,"defense":(ga/g)/avg})
     S=pd.DataFrame(rows).set_index("team")
     elo={t:1500.0 for t in teams}; K=30
-    for _,r in recent.sort_values("date").iterrows():
+    for _,r in df.sort_values("date").iterrows():
         h,a=r["home_team"],r["away_team"]; Rh,Ra=elo[h],elo[a]
         neutral=(r["neutral"]==True) or (str(r["neutral"]).upper()=="TRUE")
         ha=0 if neutral else 60
@@ -111,7 +71,7 @@ def load_and_train():
         mult=1 if gd<=1 else (1.5 if gd==2 else (1.75 if gd==3 else 2))
         elo[h]=Rh+K*mult*(Sh-Eh); elo[a]=Ra+K*mult*((1-Sh)-(1-Eh))
     for t in S.index: S.loc[t,"elo"]=round(elo[t])
-    return S, overall_avg, latest_date
+    return S, avg, latest
 
 def predict(S,avg,home,away,mg=10):
     lh=avg*S.loc[home,"attack"]*S.loc[away,"defense"]
@@ -122,44 +82,204 @@ def predict(S,avg,home,away,mg=10):
     phe,pde,pae=np.tril(met,-1).sum(),np.trace(met),np.triu(met,1).sum()
     return lh,la,ph,pd_,pa,pd_,pd_*pde,ph+pd_*(phe+pde*0.5),pa+pd_*(pae+pde*0.5)
 
+
+@st.cache_data(ttl=3600)
+def get_form(league, team, n=5):
+    df = get_data(league)
+    games = df[(df["home_team"]==team)|(df["away_team"]==team)].sort_values("date").tail(n)
+    form=[]
+    for _,r in games.iterrows():
+        if r["home_team"]==team: gf,ga=r["home_score"],r["away_score"]
+        else: gf,ga=r["away_score"],r["home_score"]
+        form.append("W" if gf>ga else ("L" if gf<ga else "D"))
+    return form
+
+def top_scoreline(avg,S,home,away,mg=8):
+    lh=avg*S.loc[home,"attack"]*S.loc[away,"defense"]
+    la=avg*S.loc[away,"attack"]*S.loc[home,"defense"]
+    best=(0,0,0.0)
+    for i in range(mg):
+        for j in range(mg):
+            p=poisson.pmf(i,lh)*poisson.pmf(j,la)
+            if p>best[2]: best=(i,j,p)
+    return best
+
 def slabel(tr,val,d=False):
     v=(1/val) if d else val
     return tr["strong"] if v>=1.15 else (tr["weak"] if v<=0.85 else tr["avg"])
 
-def display_name(team, lang):
-    # show Arabic name if available and lang is arabic, else English
-    if lang=="ar" and team in EN_TO_AR:
-        return EN_TO_AR[team]
+# ==================== FLAGS ====================
+SPECIAL_ISO={"England":"gb-eng","Scotland":"gb-sct","Wales":"gb-wls","Northern Ireland":"gb-nir","Kosovo":"xk"}
+@st.cache_data
+def flag_url(name):
+    if name in SPECIAL_ISO: return f"https://flagcdn.com/w80/{SPECIAL_ISO[name]}.png"
+    try:
+        iso2=coco.convert(names=name,to="ISO2")
+        if iso2 and iso2!="not found" and len(iso2)==2:
+            return f"https://flagcdn.com/w80/{iso2.lower()}.png"
+    except Exception: pass
+    return None
+def flag_img(name,h=22):
+    u=flag_url(name)
+    return f"<img src='{u}' height='{h}' style='vertical-align:middle;border-radius:3px;margin:0 4px;'>" if u else "⚽"
+
+
+# ==================== CLUB BADGES (for leagues) ====================
+CLUB_SEARCH = {
+    "Athletic Club":"Athletic Bilbao","CA Osasuna":"Osasuna","CD Leganés":"Leganes",
+    "Club Atlético de Madrid":"Atletico Madrid","Deportivo Alavés":"Alaves","Elche CF":"Elche",
+    "FC Barcelona":"Barcelona","Getafe CF":"Getafe","Girona FC":"Girona","Levante UD":"Levante",
+    "RC Celta de Vigo":"Celta Vigo","RCD Espanyol de Barcelona":"Espanyol","RCD Mallorca":"Mallorca",
+    "Rayo Vallecano de Madrid":"Rayo Vallecano","Real Betis Balompié":"Real Betis",
+    "Real Madrid CF":"Real Madrid","Real Oviedo":"Real Oviedo","Real Sociedad de Fútbol":"Real Sociedad",
+    "Real Valladolid CF":"Real Valladolid","Sevilla FC":"Sevilla","UD Las Palmas":"Las Palmas",
+    "Valencia CF":"Valencia","Villarreal CF":"Villarreal",
+    "AFC Bournemouth":"Bournemouth","Arsenal FC":"Arsenal","Aston Villa FC":"Aston Villa",
+    "Brentford FC":"Brentford","Brighton & Hove Albion FC":"Brighton","Burnley FC":"Burnley",
+    "Chelsea FC":"Chelsea","Crystal Palace FC":"Crystal Palace","Everton FC":"Everton",
+    "Fulham FC":"Fulham","Ipswich Town FC":"Ipswich","Leeds United FC":"Leeds",
+    "Leicester City FC":"Leicester","Liverpool FC":"Liverpool","Manchester City FC":"Manchester City",
+    "Manchester United FC":"Manchester United","Newcastle United FC":"Newcastle",
+    "Nottingham Forest FC":"Nottingham Forest","Southampton FC":"Southampton",
+    "Sunderland AFC":"Sunderland","Tottenham Hotspur FC":"Tottenham","West Ham United FC":"West Ham",
+    "Wolverhampton Wanderers FC":"Wolverhampton",
+}
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_badge(team_name):
+    import urllib.parse
+    search = CLUB_SEARCH.get(team_name, team_name)
+    try:
+        q = urllib.parse.quote(search)
+        url = f"https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t={q}"
+        req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0'})
+        data = json.load(urllib.request.urlopen(req, timeout=8))
+        if data.get('teams'):
+            for t in data['teams']:
+                if t.get('strSport')=='Soccer':
+                    b = t.get('strBadge')
+                    if b: return b + "/tiny"
+    except Exception:
+        pass
+    return None
+def badge_img(name, h=22):
+    u = get_badge(name)
+    return f"<img src='{u}' height='{h}' style='vertical-align:middle;margin:0 4px;'>" if u else "⚽"
+
+# ==================== ARABIC NAMES (nations) ====================
+AR_NAMES={"مصر":"Egypt","الأرجنتين":"Argentina","البرازيل":"Brazil","السعودية":"Saudi Arabia",
+ "المغرب":"Morocco","الجزائر":"Algeria","تونس":"Tunisia","قطر":"Qatar","الإمارات":"United Arab Emirates",
+ "العراق":"Iraq","الأردن":"Jordan","الكويت":"Kuwait","عمان":"Oman","البحرين":"Bahrain","لبنان":"Lebanon",
+ "سوريا":"Syria","فلسطين":"Palestine","ليبيا":"Libya","السودان":"Sudan","اليمن":"Yemen","فرنسا":"France",
+ "ألمانيا":"Germany","إسبانيا":"Spain","البرتغال":"Portugal","إنجلترا":"England","إيطاليا":"Italy",
+ "هولندا":"Netherlands","بلجيكا":"Belgium","كرواتيا":"Croatia","السنغال":"Senegal","نيجيريا":"Nigeria",
+ "غانا":"Ghana","الكاميرون":"Cameroon","اليابان":"Japan","كوريا الجنوبية":"South Korea","أستراليا":"Australia",
+ "أمريكا":"United States","المكسيك":"Mexico","الأوروجواي":"Uruguay","كولومبيا":"Colombia","إيران":"Iran"}
+EN_TO_AR={v:k for k,v in AR_NAMES.items()}
+# Arabic names for clubs
+CLUB_AR = {
+    "Athletic Club":"أتلتيك بيلباو","CA Osasuna":"أوساسونا","CD Leganés":"ليغانيس",
+    "Club Atlético de Madrid":"أتلتيكو مدريد","Deportivo Alavés":"ألافيس","Elche CF":"إلتشي",
+    "FC Barcelona":"برشلونة","Getafe CF":"خيتافي","Girona FC":"جيرونا","Levante UD":"ليفانتي",
+    "RC Celta de Vigo":"سيلتا فيغو","RCD Espanyol de Barcelona":"إسبانيول","RCD Mallorca":"مايوركا",
+    "Rayo Vallecano de Madrid":"رايو فاييكانو","Real Betis Balompié":"ريال بيتيس",
+    "Real Madrid CF":"ريال مدريد","Real Oviedo":"ريال أوفييدو","Real Sociedad de Fútbol":"ريال سوسيداد",
+    "Real Valladolid CF":"بلد الوليد","Sevilla FC":"إشبيلية","UD Las Palmas":"لاس بالماس",
+    "Valencia CF":"فالنسيا","Villarreal CF":"فياريال",
+    "AFC Bournemouth":"بورنموث","Arsenal FC":"آرسنال","Aston Villa FC":"أستون فيلا",
+    "Brentford FC":"برينتفورد","Brighton & Hove Albion FC":"برايتون","Burnley FC":"بيرنلي",
+    "Chelsea FC":"تشيلسي","Crystal Palace FC":"كريستال بالاس","Everton FC":"إيفرتون",
+    "Fulham FC":"فولهام","Ipswich Town FC":"إيبسويتش","Leeds United FC":"ليدز يونايتد",
+    "Leicester City FC":"ليستر سيتي","Liverpool FC":"ليفربول","Manchester City FC":"مانشستر سيتي",
+    "Manchester United FC":"مانشستر يونايتد","Newcastle United FC":"نيوكاسل",
+    "Nottingham Forest FC":"نوتينغهام فورست","Southampton FC":"ساوثهامبتون",
+    "Sunderland AFC":"سندرلاند","Tottenham Hotspur FC":"توتنهام","West Ham United FC":"وست هام",
+    "Wolverhampton Wanderers FC":"وولفرهامبتون",
+}
+
+def disp(team,lang):
+    if lang=="ar":
+        if team in EN_TO_AR: return EN_TO_AR[team]
+        if team in CLUB_AR: return CLUB_AR[team]
     return team
 
+# ==================== TRANSLATIONS ====================
+T={
+ "en":{"title":"Match Predictor","subtitle":"Live football odds from thousands of real matches",
+  "lang_label":"🌐 العربية","league":"Choose competition","home":"Team A","away":"Team B",
+  "knockout":"Knockout match (extra time & penalties)","predict":"⚽ Show the odds",
+  "loading":"Pulling latest data & training model...","pick":"⚠️ Please pick two different teams.",
+  "win":"win","draw":"Draw","exp_goals":"Expected goals (avg)","in90":"📊 Win probability (90 minutes)",
+  "decided90":"Decided in 90'","extratime":"Extra time","penalties":"Penalties",
+  "knockout_head":"⏱️ If it's a knockout","qualify":"🏆 Who goes through","strengths":"💪 Team strengths",
+  "attack":"Attack","defense":"Defense","elo":"Rating","strong":"strong","avg":"average","weak":"weak",
+  "form":"📈 Recent form (last 5)","likely":"🎯 Most likely score","share":"📋 Copy result","copied":"Copied!",
+  "updated":"Data updated to","disclaimer":"These are odds from past form, not certainties. Just for fun ⚽",
+  "verdict_fav":"**{a}** are the favourites, but **{b}** can cause an upset.",
+  "verdict_close":"It's a coin-flip — **{a}** and **{b}** are very evenly matched!",
+  "pens_note":"High chance of penalties 🥅 — anything can happen in a shootout!",
+  "L_national":"🌍 National teams","L_laliga":"🇪🇸 La Liga","L_epl":"🏴 Premier League"},
+ "ar":{"title":"حاسبة فرص الماتشات","subtitle":"فرص حيّة محسوبة من آلاف الماتشات الحقيقية",
+  "lang_label":"🌐 English","league":"اختار البطولة","home":"الفريق الأول","away":"الفريق التاني",
+  "knockout":"ماتش خروج مغلوب (وقت إضافي وجزا)","predict":"⚽ وريني الفرص",
+  "loading":"بنسحب آخر داتا وبندرّب الموديل...","pick":"⚠️ اختار فريقين مختلفين.",
+  "win":"يكسب","draw":"تعادل","exp_goals":"متوسط الأهداف المتوقّع","in90":"📊 احتمالات الفوز (في 90 دقيقة)",
+  "decided90":"يتحسم في 90'","extratime":"وقت إضافي","penalties":"ضربات جزا",
+  "knockout_head":"⏱️ لو خروج مغلوب","qualify":"🏆 مين يتأهّل","strengths":"💪 قوة الفريقين",
+  "attack":"الهجوم","defense":"الدفاع","elo":"التصنيف","strong":"قوي","avg":"متوسط","weak":"ضعيف",
+  "form":"📈 آخر 5 نتايج","likely":"🎯 النتيجة الأرجح","share":"📋 انسخ النتيجة","copied":"اتنسخت!",
+  "updated":"الداتا محدّثة حتى","disclaimer":"دي فرص محسوبة من الأداء السابق مش نتايج مؤكدة. للتسلية ⚽",
+  "verdict_fav":"**{a}** هو المرشّح، بس **{b}** ممكن يعمل مفاجأة.",
+  "verdict_close":"الماتش ونص — **{a}** و **{b}** متقاربين جداً!",
+  "pens_note":"احتمال كبير لضربات الجزا 🥅 — وفيها أي حاجة ممكن تحصل!",
+  "L_national":"🌍 المنتخبات","L_laliga":"🇪🇸 الدوري الإسباني","L_epl":"🏴 الدوري الإنجليزي"},
+}
+
 # ==================== STYLING ====================
-st.markdown("""
-<style>
+st.markdown("""<style>
+#MainMenu{visibility:hidden;} footer{visibility:hidden;}
 .stApp{background:linear-gradient(160deg,#0d1b2a 0%,#1b263b 100%);}
 h1,h2,h3,h4,p,label,span,div{color:#e8eef5 !important;}
-.block-container{padding-top:1.5rem;max-width:760px;}
+.block-container{padding-top:1.2rem;max-width:760px;}
 [data-testid="stMetricValue"]{font-size:2rem !important;font-weight:800 !important;}
 .stButton>button{background:linear-gradient(90deg,#00b894,#00cec9);color:#003;font-weight:800;
-  border:none;border-radius:12px;padding:.6rem 1rem;font-size:1.05rem;}
+ border:none;border-radius:12px;padding:.6rem 1rem;font-size:1.05rem;}
 .stButton>button:hover{filter:brightness(1.1);}
-.hero{text-align:center;padding:6px 0 2px;}
-.hero .ball{font-size:2.6rem;}
+.hero{text-align:center;padding:4px 0 2px;}
 .matchup{display:flex;align-items:center;justify-content:center;gap:14px;margin:14px 0;}
 .team-card{background:rgba(255,255,255,.06);border-radius:14px;padding:12px 18px;text-align:center;min-width:120px;}
-.team-flag{font-size:2.4rem;line-height:1;}
 .team-name{font-weight:700;margin-top:4px;font-size:1rem;}
 .vs{font-size:1.3rem;font-weight:800;opacity:.6;}
-.verdict{background:rgba(255,255,255,.07);border-left:4px solid #00b894;
-  padding:14px 18px;border-radius:10px;font-size:1.1rem;margin:10px 0;}
+.verdict{background:rgba(255,255,255,.07);border-left:4px solid #00b894;padding:14px 18px;
+ border-radius:10px;font-size:1.1rem;margin:10px 0;}
 .bar-wrap{display:flex;height:38px;border-radius:10px;overflow:hidden;margin:8px 0 4px;}
 .bar-seg{display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.95rem;color:#fff;}
-</style>
-""", unsafe_allow_html=True)
+.form-badge{display:inline-block;width:26px;height:26px;line-height:26px;text-align:center;border-radius:6px;font-weight:800;font-size:.8rem;margin:0 2px;color:#fff;}
+.fw{background:#00b894;} .fd{background:#636e72;} .fl{background:#d63031;}
+
+/* --- Dropdown menu fix: dark background + visible text --- */
+div[data-baseweb="select"] > div{
+  background-color:#1b263b !important;
+  border-color:rgba(255,255,255,.2) !important;
+}
+div[data-baseweb="select"] *{ color:#e8eef5 !important; }
+/* the popover list that opens */
+ul[role="listbox"], div[data-baseweb="popover"] div[data-baseweb="menu"]{
+  background-color:#1b263b !important;
+}
+ul[role="listbox"] li, li[role="option"]{
+  background-color:#1b263b !important;
+  color:#e8eef5 !important;
+}
+ul[role="listbox"] li:hover, li[role="option"]:hover{
+  background-color:#2a3b52 !important;
+}
+/* radio buttons text */
+div[role="radiogroup"] label{ color:#e8eef5 !important; }
+</style>""", unsafe_allow_html=True)
 
 # ==================== UI ====================
 if "lang" not in st.session_state: st.session_state.lang="en"
 tr=T[st.session_state.lang]
-
 c1,c2=st.columns([4,1])
 with c2:
     if st.button(tr["lang_label"]):
@@ -168,58 +288,71 @@ tr=T[st.session_state.lang]; lang=st.session_state.lang
 if lang=="ar":
     st.markdown('<style>.main *{direction:rtl;text-align:right;}</style>',unsafe_allow_html=True)
 
-st.markdown(f"<div class='hero'><div class='ball'>🏆⚽</div><h1 style='margin:0;'>{tr['title']}</h1>"
+st.markdown(f"<div class='hero'><div style='font-size:2.4rem;'>🏆⚽</div>"
+            f"<h1 style='margin:0;'>{tr['title']}</h1>"
             f"<p style='opacity:.7;margin-top:2px;'>{tr['subtitle']}</p></div>",unsafe_allow_html=True)
 
+# league picker
+league_opts={"national":tr["L_national"],"laliga":tr["L_laliga"],"epl":tr["L_epl"]}
+league=st.radio(tr["league"],list(league_opts.keys()),
+                format_func=lambda k:league_opts[k],horizontal=True)
+
+is_national = (league=="national")
+
 with st.spinner(tr["loading"]):
-    S,avg,latest=load_and_train()
+    S,avg,latest=train(league)
 teams=sorted(S.index.tolist())
 
-# selectbox WITHOUT flags in the label (clean typing) — Arabic display when available
+di=teams.index("Egypt") if (is_national and "Egypt" in teams) else 0
+ai=teams.index("Argentina") if (is_national and "Argentina" in teams) else 1
 col1,col2=st.columns(2)
 with col1:
-    home=st.selectbox(tr["home"],teams,
-        index=teams.index("Egypt") if "Egypt" in teams else 0,
-        format_func=lambda t: display_name(t,lang))
+    home=st.selectbox(tr["home"],teams,index=di,format_func=lambda t:disp(t,lang))
 with col2:
-    away=st.selectbox(tr["away"],teams,
-        index=teams.index("Argentina") if "Argentina" in teams else 1,
-        format_func=lambda t: display_name(t,lang))
-knockout=st.checkbox(tr["knockout"],value=True)
+    away=st.selectbox(tr["away"],teams,index=ai,format_func=lambda t:disp(t,lang))
 
-# live matchup preview with flags OUTSIDE (next to result area)
-fh,fa=flag_img(home,54),flag_img(away,54)
-fh_s,fa_s=flag_img(home,22),flag_img(away,22)
-st.markdown(
-    f"<div class='matchup'>"
-    f"<div class='team-card'><div>{fh}</div><div class='team-name'>{display_name(home,lang)}</div></div>"
+# knockout option only for national teams (leagues have no penalties)
+knockout = st.checkbox(tr["knockout"],value=True) if is_national else False
+
+# nations get country flags; clubs get team badges
+def team_flag(t,h=22):
+    return flag_img(t,h) if is_national else badge_img(t,h)
+
+fh,fa=team_flag(home,54),team_flag(away,54)
+fh_s,fa_s=team_flag(home,22),team_flag(away,22)
+st.markdown(f"<div class='matchup'>"
+    f"<div class='team-card'><div>{fh}</div><div class='team-name'>{disp(home,lang)}</div></div>"
     f"<div class='vs'>VS</div>"
-    f"<div class='team-card'><div>{fa}</div><div class='team-name'>{display_name(away,lang)}</div></div>"
-    f"</div>", unsafe_allow_html=True)
+    f"<div class='team-card'><div>{fa}</div><div class='team-name'>{disp(away,lang)}</div></div>"
+    f"</div>",unsafe_allow_html=True)
 
 if st.button(tr["predict"],type="primary",use_container_width=True):
     if home==away:
         st.warning(tr["pick"])
     else:
-        hn,an=display_name(home,lang),display_name(away,lang)
+        hn,an=disp(home,lang),disp(away,lang)
         lh,la,ph,pd_,pa,g_et,g_pen,fin_h,fin_a=predict(S,avg,home,away)
         diff=abs(ph-pa)
-        if diff<0.08:
-            verdict=tr["verdict_close"].format(a=f"{fh_s} {hn}",b=f"{fa_s} {an}")
-        else:
-            if ph>pa: verdict=tr["verdict_fav"].format(a=f"{fh_s} {hn}",b=f"{fa_s} {an}")
-            else: verdict=tr["verdict_fav"].format(a=f"{fa_s} {an}",b=f"{fh_s} {hn}")
+        if diff<0.08: verdict=tr["verdict_close"].format(a=f"{fh_s} {hn}",b=f"{fa_s} {an}")
+        elif ph>pa: verdict=tr["verdict_fav"].format(a=f"{fh_s} {hn}",b=f"{fa_s} {an}")
+        else: verdict=tr["verdict_fav"].format(a=f"{fa_s} {an}",b=f"{fh_s} {hn}")
         st.markdown(f"<div class='verdict'>{verdict}</div>",unsafe_allow_html=True)
 
         st.markdown(f"#### {tr['in90']}")
-        st.markdown(
-            f"<div class='bar-wrap'>"
+        st.markdown(f"<div class='bar-wrap'>"
             f"<div class='bar-seg' style='width:{ph*100:.0f}%;background:#d63031;'>{ph*100:.0f}%</div>"
             f"<div class='bar-seg' style='width:{pd_*100:.0f}%;background:#636e72;'>{pd_*100:.0f}%</div>"
             f"<div class='bar-seg' style='width:{pa*100:.0f}%;background:#0984e3;'>{pa*100:.0f}%</div></div>"
             f"<div style='display:flex;justify-content:space-between;font-size:.9rem;opacity:.85;'>"
             f"<span>{fh_s} {hn} {tr['win']}</span><span>{tr['draw']}</span><span>{an} {tr['win']} {fa_s}</span></div>",
             unsafe_allow_html=True)
+
+        # most likely scoreline
+        si,sj,sp=top_scoreline(avg,S,home,away)
+        st.markdown(f"<div style='text-align:center;margin:14px 0;'>"
+            f"<span style='opacity:.7;'>{tr['likely']}:</span> "
+            f"<span style='font-size:1.4rem;font-weight:800;'>{hn} {si} - {sj} {an}</span> "
+            f"<span style='opacity:.6;'>({sp*100:.0f}%)</span></div>",unsafe_allow_html=True)
 
         g1,g2=st.columns(2)
         g1.metric(f"{hn} · {tr['exp_goals']}",f"{lh:.2f}")
@@ -240,11 +373,26 @@ if st.button(tr["predict"],type="primary",use_container_width=True):
         st.markdown(f"#### {tr['strengths']}")
         for team in [home,away]:
             atk=S.loc[team,"attack"]; dfn=S.loc[team,"defense"]; el=int(S.loc[team,"elo"])
-            st.markdown(
-                f"<div style='background:rgba(255,255,255,.05);padding:10px 14px;border-radius:10px;margin:5px 0;'>"
-                f"<b>{flag_img(team,20)} {display_name(team,lang)}</b> &nbsp;·&nbsp; {tr['attack']}: <b>{atk:.2f}</b> ({slabel(tr,atk)}) "
+            st.markdown(f"<div style='background:rgba(255,255,255,.05);padding:10px 14px;border-radius:10px;margin:5px 0;'>"
+                f"<b>{team_flag(team,20)} {disp(team,lang)}</b> &nbsp;·&nbsp; {tr['attack']}: <b>{atk:.2f}</b> ({slabel(tr,atk)}) "
                 f"&nbsp;·&nbsp; {tr['defense']}: <b>{dfn:.2f}</b> ({slabel(tr,dfn,True)}) "
                 f"&nbsp;·&nbsp; {tr['elo']}: <b>{el}</b></div>",unsafe_allow_html=True)
+
+        # recent form
+        st.markdown(f"#### {tr['form']}")
+        def form_html(team):
+            f=get_form(league,team)
+            cls={"W":"fw","D":"fd","L":"fl"}
+            badges="".join(f"<span class='form-badge {cls[x]}'>{x}</span>" for x in f)
+            return badges if badges else "<span style='opacity:.5;'>—</span>"
+        for team in [home,away]:
+            st.markdown(f"<div style='margin:6px 0;'><b>{team_flag(team,20)} {disp(team,lang)}</b> &nbsp; {form_html(team)}</div>",
+                        unsafe_allow_html=True)
+
+        # share / copy result
+        share_text=f"{hn} {si}-{sj} {an} | {hn} {ph*100:.0f}% - {tr['draw']} {pd_*100:.0f}% - {an} {pa*100:.0f}%"
+        st.markdown(f"#### {tr['share']}")
+        st.code(share_text, language=None)
 
         st.divider()
         st.caption(f"📅 {tr['updated']} {latest.date()}  ·  {tr['disclaimer']}")
