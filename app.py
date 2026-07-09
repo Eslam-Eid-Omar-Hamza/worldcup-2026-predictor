@@ -51,6 +51,7 @@ def get_data(league):
     if league=="national": return load_national()
     if league=="laliga": return load_openfootball("es.1")
     if league=="epl": return load_openfootball("en.1")
+    if league=="bundesliga": return load_openfootball("de.1")
 
 # ==================== MODEL ====================
 @st.cache_data(ttl=3600)
@@ -151,6 +152,12 @@ CLUB_SEARCH = {
     "Nottingham Forest FC":"Nottingham Forest","Southampton FC":"Southampton",
     "Sunderland AFC":"Sunderland","Tottenham Hotspur FC":"Tottenham","West Ham United FC":"West Ham",
     "Wolverhampton Wanderers FC":"Wolverhampton",
+    "1. FC Heidenheim 1846":"Heidenheim","1. FC Köln":"FC Koln","1. FC Union Berlin":"Union Berlin",
+    "1. FSV Mainz 05":"Mainz","Bayer 04 Leverkusen":"Bayer Leverkusen","Borussia Dortmund":"Borussia Dortmund",
+    "Borussia Mönchengladbach":"Borussia Monchengladbach","Eintracht Frankfurt":"Eintracht Frankfurt",
+    "FC Augsburg":"Augsburg","FC Bayern München":"Bayern Munich","FC St. Pauli 1910":"St Pauli",
+    "Hamburger SV":"Hamburg","RB Leipzig":"RB Leipzig","SC Freiburg":"Freiburg","SV Werder Bremen":"Werder Bremen",
+    "TSG 1899 Hoffenheim":"Hoffenheim","VfB Stuttgart":"VfB Stuttgart","VfL Wolfsburg":"Wolfsburg",
 }
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_badge(team_name):
@@ -202,6 +209,12 @@ CLUB_AR = {
     "Nottingham Forest FC":"نوتينغهام فورست","Southampton FC":"ساوثهامبتون",
     "Sunderland AFC":"سندرلاند","Tottenham Hotspur FC":"توتنهام","West Ham United FC":"وست هام",
     "Wolverhampton Wanderers FC":"وولفرهامبتون",
+    "1. FC Heidenheim 1846":"هايدنهايم","1. FC Köln":"كولن","1. FC Union Berlin":"يونيون برلين",
+    "1. FSV Mainz 05":"ماينز","Bayer 04 Leverkusen":"باير ليفركوزن","Borussia Dortmund":"بوروسيا دورتموند",
+    "Borussia Mönchengladbach":"مونشنغلادباخ","Eintracht Frankfurt":"آينتراخت فرانكفورت",
+    "FC Augsburg":"أوغسبورغ","FC Bayern München":"بايرن ميونخ","FC St. Pauli 1910":"سانت باولي",
+    "Hamburger SV":"هامبورغ","RB Leipzig":"لايبزيغ","SC Freiburg":"فرايبورغ","SV Werder Bremen":"فيردر بريمن",
+    "TSG 1899 Hoffenheim":"هوفنهايم","VfB Stuttgart":"شتوتغارت","VfL Wolfsburg":"فولفسبورغ",
 }
 
 def disp(team,lang):
@@ -225,7 +238,7 @@ T={
   "verdict_fav":"**{a}** are the favourites, but **{b}** can cause an upset.",
   "verdict_close":"It's a coin-flip — **{a}** and **{b}** are very evenly matched!",
   "pens_note":"High chance of penalties 🥅 — anything can happen in a shootout!",
-  "L_national":"🌍 National teams","L_laliga":"🇪🇸 La Liga","L_epl":"🏴 Premier League"},
+  "L_national":"National teams","L_laliga":"La Liga (ES)","L_epl":"Premier League (EN)","L_bundesliga":"Bundesliga (DE)"},
  "ar":{"title":"حاسبة فرص الماتشات","subtitle":"فرص حيّة محسوبة من آلاف الماتشات الحقيقية",
   "lang_label":"🌐 English","league":"اختار البطولة","home":"الفريق الأول","away":"الفريق التاني",
   "knockout":"ماتش خروج مغلوب (وقت إضافي وجزا)","predict":"⚽ وريني الفرص",
@@ -239,7 +252,7 @@ T={
   "verdict_fav":"**{a}** هو المرشّح، بس **{b}** ممكن يعمل مفاجأة.",
   "verdict_close":"الماتش ونص — **{a}** و **{b}** متقاربين جداً!",
   "pens_note":"احتمال كبير لضربات الجزا 🥅 — وفيها أي حاجة ممكن تحصل!",
-  "L_national":"🌍 المنتخبات","L_laliga":"🇪🇸 الدوري الإسباني","L_epl":"🏴 الدوري الإنجليزي"},
+  "L_national":"المنتخبات","L_laliga":"الدوري الإسباني","L_epl":"الدوري الإنجليزي","L_bundesliga":"الدوري الألماني"},
 }
 
 
@@ -326,20 +339,24 @@ div[role="radiogroup"] label{ color:#e8eef5 !important; }
 # ==================== UI ====================
 if "lang" not in st.session_state: st.session_state.lang="en"
 tr=T[st.session_state.lang]
-c1,c2=st.columns([4,1])
-with c2:
-    if st.button(tr["lang_label"]):
-        st.session_state.lang="ar" if st.session_state.lang=="en" else "en"; st.rerun()
-tr=T[st.session_state.lang]; lang=st.session_state.lang
+lang=st.session_state.lang
 if lang=="ar":
     st.markdown('<style>.main *{direction:rtl;text-align:right;}</style>',unsafe_allow_html=True)
 
-st.markdown(f"<div class='hero'><div style='font-size:2.4rem;'>🏆⚽</div>"
-            f"<h1 style='margin:0;'>{tr['title']}</h1>"
+# hero icons
+st.markdown("<div class='hero'><div style='font-size:2.4rem;'>🏆⚽</div></div>",unsafe_allow_html=True)
+# language toggle centered under the icons
+lc1,lc2,lc3=st.columns([1,1,1])
+with lc2:
+    if st.button(tr["lang_label"], use_container_width=True):
+        st.session_state.lang="ar" if st.session_state.lang=="en" else "en"; st.rerun()
+tr=T[st.session_state.lang]; lang=st.session_state.lang
+# title + subtitle
+st.markdown(f"<div class='hero'><h1 style='margin:0;'>{tr['title']}</h1>"
             f"<p style='opacity:.7;margin-top:2px;'>{tr['subtitle']}</p></div>",unsafe_allow_html=True)
 
 # league picker
-league_opts={"national":tr["L_national"],"laliga":tr["L_laliga"],"epl":tr["L_epl"]}
+league_opts={"national":tr["L_national"],"laliga":tr["L_laliga"],"epl":tr["L_epl"],"bundesliga":tr["L_bundesliga"]}
 league=st.radio(tr["league"],list(league_opts.keys()),
                 format_func=lambda k:league_opts[k],horizontal=True)
 
@@ -438,7 +455,7 @@ if st.button(tr["predict"],type="primary",use_container_width=True):
         # shareable image card
         st.markdown(f"#### {tr['share']}")
         try:
-            card=build_card(hn,an,ph,pd_,pa,si,sj,(g_pen if knockout else 0),lang)
+            card=build_card(home,away,ph,pd_,pa,si,sj,(g_pen if knockout else 0),"en")
             st.image(card, use_container_width=True)
             st.download_button(tr['download'], data=card.getvalue(),
                 file_name=f"{home}_vs_{away}.png", mime="image/png", use_container_width=True)
